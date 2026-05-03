@@ -42,6 +42,8 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'rest_framework',
     'corsheaders',
+    'users',
+    'clubs',
 ]
 
 MIDDLEWARE = [
@@ -91,6 +93,7 @@ DATABASES = {
     }
 }
 
+AUTH_USER_MODEL = 'users.User'
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
@@ -159,3 +162,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+MEDIA_URL = '/media/'
+
+MEDIA_ROOT = BASE_DIR / 'media'
