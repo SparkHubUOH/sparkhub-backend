@@ -35,15 +35,25 @@ class Member(models.Model):
         ('vice leader', 'نائب القائد')
     ]
     
+    TEAM_CHOICES = [
+    ('events', 'Events'),
+    ('media', 'Media'),
+    ('design', 'Design'),
+    ('content', 'Content'),
+    ('projects', 'Projects'),
+    ('management', 'Management'),
+    ]
+    
     STATUS_CHOICES = [
         ('pending', 'قيد الانتظار'),
         ('accepted', 'مقبول'),
         ('rejected', 'مرفوض'),
     ]
 
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='memberships')
     club = models.ForeignKey(Club, on_delete=models.CASCADE, related_name='memberships')
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='member')
+    team = models.CharField(max_length=30, choices=TEAM_CHOICES, null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     joined_at = models.DateTimeField(auto_now_add=True)
 
@@ -76,3 +86,29 @@ class ClubPost(models.Model):
 
     def __str__(self):
         return f"Post by {self.club.club_name} at {self.created_at}"
+    
+class Activity(models.Model):
+    CATEGORY_CHOICES = [
+        ('WORKSHOPS', 'Workshops'),
+        ('DISCUSSIONS', 'Discussions'),
+        ('EXHIBITIONS', 'Exhibitions'),
+        ('OTHER', 'Other'),
+    ]
+    club = models.ForeignKey(Club, on_delete=models.CASCADE, related_name='activities')
+    title = models.CharField(max_length=200)
+    title_ar = models.CharField(max_length=200, null=True, blank=True)
+    description = models.TextField()
+    description_ar = models.TextField(null=True, blank=True)
+    location = models.CharField(max_length=255)
+    date = models.DateTimeField()
+    max_attendees = models.IntegerField(default=50)
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='OTHER')
+    image = models.ImageField(upload_to='activities/', null=True, blank=True)
+    points_to_earn = models.IntegerField(default=15)
+    
+    participants = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='attended_activities', blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.title

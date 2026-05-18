@@ -39,6 +39,7 @@ urlpatterns = [
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/', include('users.urls')),
     path('api/', include('clubs.urls')),
+    path('api/', include('analytics.urls')),
 ]
 
 if settings.DEBUG:
