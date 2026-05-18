@@ -3,8 +3,11 @@ from rest_framework.decorators import api_view, permission_classes, authenticati
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from .models import Announcement, Club, ClubPost, Member
-from .serializers import AnnouncementSerializer, ClubPostSerializer, ClubSerializer
+
+from users.models import User
+from .models import Activity, Announcement, Club, ClubPost, Member
+from .serializers import ActivitySerializer, AnnouncementSerializer, ClubPostSerializer, ClubSerializer
+from rest_framework.views import APIView
 
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
@@ -30,6 +33,86 @@ def club_list_create(request):
         return Response(serializer.errors, status=400)
 
 
+@api_view(['GET', 'PUT', 'PATCH'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([JWTAuthentication])
+def club_detail(request, pk):
+    try:
+        club = Club.objects.get(pk=pk)
+    except Club.DoesNotExist:
+        return Response(
+            {'error': 'Club not found.'},
+            status=404
+        )
+
+    if request.method == 'GET':
+        serializer = ClubSerializer(club)
+        return Response(serializer.data)
+
+    if request.method in ['PUT', 'PATCH']:
+        print(request.data)
+
+        serializer = ClubSerializer(
+            club,
+            data=request.data,
+            partial=True
+        )
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+
+        print(serializer.errors)
+        return Response(serializer.errors, status=400)
+             
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_club_posts(request, club_id):
+    try:
+        posts = ClubPost.objects.filter(club_id=club_id).order_by('-created_at')
+
+        serializer = ClubPostSerializer(posts, many=True)
+
+        return Response(serializer.data)
+
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+    
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+@authentication_classes([JWTAuthentication])
+def ClubList(request):
+    clubs = Club.objects.all()
+    data = [
+    {
+        'id': club.id,
+        'club_name': club.club_name,      
+        'club_name_ar': club.club_name_ar, 
+        'description': club.description,
+        'description_ar': club.description_ar,
+        'points': club.points,          
+        'status': club.status,
+        'logo': club.logo.url if club.logo else None
+    }
+        for club in clubs
+    ]
+    return Response(data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_my_club(request):
+    try:
+        club = Club.objects.get (
+        created_by=request.user,
+        status='active'
+        ) 
+        return Response({'id': club.id})
+    except Club.DoesNotExist:
+        return Response({'error': 'No club found for this leader'}, status=404)
+
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def approve_club(request, pk):
@@ -54,7 +137,35 @@ def approve_club(request, pk):
 
     except Club.DoesNotExist:
         return Response({'error': 'Club not found.'}, status=404)
-    
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_join_requests(request, club_id):
+    try:
+        club = Club.objects.get(id=club_id)
+
+        if club.created_by != request.user:
+            return Response({'error': 'Not authorized'}, status=403)
+
+        pending_members = Member.objects.filter(club=club, status='pending')
+
+        data = [
+            {
+                'id': m.id,
+                'full_name': f"{m.user.first_name} {m.user.last_name}",
+                'university_id': m.user.university_id,
+                'user': {'id': m.user.id},
+                'status': m.status,
+            }
+            for m in pending_members
+        ]
+
+        return Response(data, status=200)
+
+    except Club.DoesNotExist:
+        return Response({'error': 'Club not found'}, status=404)
+
     
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -94,7 +205,54 @@ def manage_member(request, member_id):
     except Member.DoesNotExist:
         return Response({'error': 'Request not found.'}, status=404)
     
-    
+
+class OrgChartView(APIView):
+    def get(self, request, club_id):
+        
+        try:
+            club = Club.objects.get(id=club_id)
+        except Club.DoesNotExist:
+            return Response({"error": "Club not found"}, status=404)
+        
+        club_leader = f"{club.created_by.first_name} {club.created_by.last_name}"
+        vice_leader = Member.objects.filter(club_id=club_id, role='vice leader', status='accepted').first()
+
+        teams_data = []
+        members_with_teams = Member.objects.filter(club_id=club_id, status='accepted').exclude(team__isnull=True)
+        
+        distinct_teams = members_with_teams.values_list('team', flat=True).distinct()
+        for team_name in distinct_teams:
+            team_members = members_with_teams.filter(team=team_name)
+            teams_data.append({
+                "name": team_name,
+                "teamLeader": team_members.filter(role='team leader').first().user.get_full_name() if team_members.filter(role='team leader').exists() else "TBD",
+                "viceLeader": team_members.filter(role='vice leader').first().user.get_full_name() if team_members.filter(role='vice leader').exists() else "TBD",
+                "members": [m.user.get_full_name() for m in team_members.filter(role='member')]
+            })
+
+        return Response({
+            "clubLeader": club_leader,
+            "clubViceLeader": vice_leader.user.get_full_name() if vice_leader else "",
+            "teams": teams_data
+        })
+
+class UpdateMemberRoleView(APIView):
+    def post(self, request):
+        member_id = request.data.get('member_id')
+        new_role = request.data.get('role') 
+        new_team = request.data.get('team') 
+        
+        try:
+            member = Member.objects.get(id=member_id)
+            member.role = new_role
+            member.team = new_team
+            member.status = 'accepted'
+            member.save()
+            return Response({"message": "تم تحديث الدور بنجاح"})
+        except Member.DoesNotExist:
+            return Response({"error": "العضو غير موجود"}, status=404)
+        
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_announcements(request, club_id):
@@ -157,3 +315,123 @@ def create_club_post(request, club_id):
         
     except Club.DoesNotExist:
         return Response({'error': 'Club not found.'}, status=404)
+    
+    
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def activity_list_create(request, club_id):
+    try:
+        club = Club.objects.get(id=club_id)
+        
+        if request.method == 'GET':
+            activities = club.activities.all().order_by('date')
+            serializer = ActivitySerializer(activities, many=True, context={'request': request})
+            return Response(serializer.data)
+
+        if request.method == 'POST':
+            if club.created_by != request.user:
+                return Response({'error': 'Only club leader can create activities.'}, status=403)
+            
+            serializer = ActivitySerializer(data=request.data)
+            if serializer.is_valid():
+                serializer.save(club=club)
+                return Response(serializer.data, status=201)
+            return Response(serializer.errors, status=400)
+            
+    except Club.DoesNotExist:
+        return Response({'error': 'Club not found.'}, status=404)
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_activity(request, pk):
+    try:
+        activity = Activity.objects.get(pk=pk)
+        activity.delete()
+        
+        return Response({'message': 'Activity deleted successfully'}, status=200)
+    
+    except Activity.DoesNotExist:
+        return Response({'error': 'Activity not found'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=400)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def all_activities_list(request):
+    try:
+        activities = Activity.objects.all().order_by('date')
+        serializer = ActivitySerializer(activities, many=True, context={'request': request})
+        
+        return Response(serializer.data)
+    except Exception as e:
+        print(f"Error in activities list: {e}")
+        return Response({"error": str(e)}, status=500)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def register_for_activity(request, activity_id):
+    try:
+        activity = Activity.objects.get(id=activity_id)
+        
+        if activity.participants.filter(id=request.user.id).exists():
+            return Response({'message': 'You are already registered.'}, status=400)
+        
+        if activity.participants.count() >= activity.max_attendees:
+            return Response({'error': 'Activity is full.'}, status=400)
+        
+        activity.participants.add(request.user)
+        activity.save()
+        return Response({'message': 'Registered successfully.'}, status=200)
+        
+    except Activity.DoesNotExist:
+        return Response({'error': 'Activity not found.'}, status=404)
+    
+    
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def registered_activities_list(request):
+    activities = request.user.attended_activities.all().order_by('-date')
+    serializer = ActivitySerializer(activities, many=True)
+    return Response(serializer.data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_activity_participants(request, activity_id):
+    try:
+        
+        activity = Activity.objects.get(pk=activity_id)
+        participants = activity.participants.all() 
+        
+        data = []
+        for user in participants:
+            data.append({
+                'userId': user.id,
+                'name': f"{user.first_name} {user.last_name}" if user.first_name else user.username,
+                'email': user.email,
+                'university_id': getattr(user, 'university_id', 'N/A'),
+                'role': user.role 
+            })
+            
+        return Response({
+            'activity_title': activity.title,
+            'participants': data
+        }, status=200)
+
+    except Activity.DoesNotExist:
+        return Response({'error': 'Activity not found'}, status=404)
+    
+    
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def remove_participant_from_activity(request, activity_id, user_id):
+    try:
+        activity = Activity.objects.get(pk=activity_id)
+        participant = activity.participants.get(id=user_id)
+        
+        activity.participants.remove(participant)
+        
+        return Response({'message': 'Participant removed successfully'}, status=200)
+    except (Activity.DoesNotExist, User.DoesNotExist):
+        return Response({'error': 'Not found'}, status=404)
