@@ -86,10 +86,11 @@ DATABASES = {
     'default': {
         'ENGINE': 'mssql',
         'NAME': config('DB_NAME'),
+        'USER': config('DB_USER'),
+        'PASSWORD': config('DB_PASSWORD'),
         'HOST': config('DB_HOST'),
         'OPTIONS': {
             'driver': 'ODBC Driver 17 for SQL Server',
-            'trusted_connection': config('DB_TRUSTED'),
         }
     }
 }
