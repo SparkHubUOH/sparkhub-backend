@@ -3,7 +3,7 @@ from rest_framework.decorators import api_view, permission_classes, authenticati
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
-
+from django.db.models import Q
 from users.models import User
 from .models import Activity, Announcement, Club, ClubPost, Member
 from .serializers import ActivitySerializer, AnnouncementSerializer, ClubPostSerializer, ClubSerializer
@@ -210,31 +210,39 @@ class OrgChartView(APIView):
     def get(self, request, club_id):
         
         try:
-            club = Club.objects.get(id=club_id)
+            club = Club.objects.select_related('created_by').get(id=club_id)
         except Club.DoesNotExist:
             return Response({"error": "Club not found"}, status=404)
         
-        club_leader = f"{club.created_by.first_name} {club.created_by.last_name}"
-        vice_leader = Member.objects.filter(club_id=club_id, role='vice leader', status='accepted').first()
-
-        teams_data = []
-        members_with_teams = Member.objects.filter(club_id=club_id, status='accepted').exclude(team__isnull=True)
+        all_members = Member.objects.filter(
+            club_id=club_id, 
+            status='accepted'
+        ).select_related('user').order_by('team')
         
-        distinct_teams = members_with_teams.values_list('team', flat=True).distinct()
-        for team_name in distinct_teams:
-            team_members = members_with_teams.filter(team=team_name)
-            teams_data.append({
-                "name": team_name,
-                "teamLeader": team_members.filter(role='team leader').first().user.get_full_name() if team_members.filter(role='team leader').exists() else "TBD",
-                "viceLeader": team_members.filter(role='vice leader').first().user.get_full_name() if team_members.filter(role='vice leader').exists() else "TBD",
-                "members": [m.user.get_full_name() for m in team_members.filter(role='member')]
-            })
+        club_leader = f"{club.created_by.first_name} {club.created_by.last_name}"
+        vice_leader_obj = all_members.filter(role='vice leader').filter(Q(team__isnull=True) | Q(team='')).first()
+        
+        teams_dict = {}
+        for m in all_members:
+            if not m.team: continue
+            
+            if m.team not in teams_dict:
+                teams_dict[m.team] = {"name": m.team, "teamLeader": "TBD", "viceLeader": "TBD", "members": []}
+            
+            full_name = m.user.get_full_name()
+            if m.role == 'team leader':
+                teams_dict[m.team]["teamLeader"] = full_name
+            elif m.role == 'vice leader':
+                teams_dict[m.team]["viceLeader"] = full_name
+            elif m.role == 'member':
+                teams_dict[m.team]["members"].append(full_name)
 
         return Response({
             "clubLeader": club_leader,
-            "clubViceLeader": vice_leader.user.get_full_name() if vice_leader else "",
-            "teams": teams_data
+            "clubViceLeader": vice_leader_obj.user.get_full_name() if vice_leader_obj else "",
+            "teams": list(teams_dict.values())
         })
+
 
 class UpdateMemberRoleView(APIView):
     def post(self, request):
