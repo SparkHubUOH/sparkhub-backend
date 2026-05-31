@@ -3,11 +3,13 @@ from rest_framework.decorators import api_view, permission_classes, authenticati
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from django.db.models import Q
+from django.db.models import Q, Count
 from users.models import User
+from rest_framework import status
 from .models import Activity, Announcement, Club, ClubPost, Member
 from .serializers import ActivitySerializer, AnnouncementSerializer, ClubPostSerializer, ClubSerializer
 from rest_framework.views import APIView
+from rest_framework.pagination import PageNumberPagination
 
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
@@ -31,7 +33,6 @@ def club_list_create(request):
             serializer.save(created_by=request.user)
             return Response({'message': 'Club request submitted successfully.'}, status=201)
         return Response(serializer.errors, status=400)
-
 
 @api_view(['GET', 'PUT', 'PATCH'])
 @permission_classes([IsAuthenticated])
@@ -65,7 +66,6 @@ def club_detail(request, pk):
         print(serializer.errors)
         return Response(serializer.errors, status=400)
              
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_club_posts(request, club_id):
@@ -78,7 +78,6 @@ def get_club_posts(request, club_id):
 
     except Exception as e:
         return Response({'error': str(e)}, status=500)
-    
 
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
@@ -99,7 +98,6 @@ def ClubList(request):
         for club in clubs
     ]
     return Response(data)
-
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -138,7 +136,6 @@ def approve_club(request, pk):
     except Club.DoesNotExist:
         return Response({'error': 'Club not found.'}, status=404)
 
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_join_requests(request, club_id):
@@ -166,7 +163,7 @@ def get_join_requests(request, club_id):
     except Club.DoesNotExist:
         return Response({'error': 'Club not found'}, status=404)
 
-    
+  
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def join_club(request, club_id):
@@ -182,7 +179,24 @@ def join_club(request, club_id):
         
     except Club.DoesNotExist:
         return Response({'error': 'Club not found or not active.'}, status=404)
+ 
+ 
+ # في views.py (الدالة التي ترجع قائمة الأعضاء)
+def get_club_members(request, club_id):
+    members = Member.objects.filter(club_id=club_id, status='accepted')\
+                            .select_related('user')\
+                            .only('id', 'role', 'team', 'user__first_name', 'user__last_name', 'user__id')
     
+    data = [{
+        "id": m.id,
+        "role": m.role,
+        "full_name": f"{m.user.first_name} {m.user.last_name}",
+        "user": m.user.id,
+        "team": m.team
+    } for m in members]
+    
+    return Response(data)
+   
     
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
@@ -204,7 +218,22 @@ def manage_member(request, member_id):
 
     except Member.DoesNotExist:
         return Response({'error': 'Request not found.'}, status=404)
+
+
+@api_view(['DELETE'])
+def delete_member(request, member_id):
+    try:
+        member = Member.objects.get(id=member_id)
+        
+        member.delete()
+        
+        return Response({"message": "Member deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
     
+    except Member.DoesNotExist:
+        return Response({"error": "Member not found"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class OrgChartView(APIView):
     def get(self, request, club_id):
@@ -325,6 +354,25 @@ def create_club_post(request, club_id):
         return Response({'error': 'Club not found.'}, status=404)
     
     
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_club_post(request, post_id):
+    try:
+        post = ClubPost.objects.get(id=post_id)
+        
+        if post.club.created_by != request.user:
+            return Response({"error": "You don't have permission to delete this post."}, 
+                            status=status.HTTP_403_FORBIDDEN)
+        
+        post.delete()
+        return Response({"message": "Post deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
+    
+    except ClubPost.DoesNotExist:
+        return Response({"error": "Post not found"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def activity_list_create(request, club_id):
@@ -349,6 +397,7 @@ def activity_list_create(request, club_id):
     except Club.DoesNotExist:
         return Response({'error': 'Club not found.'}, status=404)
 
+
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def delete_activity(request, pk):
@@ -363,14 +412,36 @@ def delete_activity(request, pk):
     except Exception as e:
         return Response({'error': str(e)}, status=400)
 
+
+class ActivityPagination(PageNumberPagination):
+    page_size = 20
+    
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def all_activities_list(request):
     try:
-        activities = Activity.objects.all().order_by('date')
-        serializer = ActivitySerializer(activities, many=True, context={'request': request})
+        activities = Activity.objects.select_related('club')\
+                             .annotate(participants_count=Count('participants'))\
+                             .all().order_by('date')
+
+        data = []
+        for act in activities:
+            data.append({
+                "id": act.id,
+                "title": act.title,
+                "title_ar": act.title_ar,
+                "description": act.description,
+                "location": act.location,
+                "date": act.date.isoformat(),
+                "max_attendees": act.max_attendees,
+                "category": act.category,
+                "image": request.build_absolute_uri(act.image.url) if act.image else None,
+                "points_to_earn": act.points_to_earn,
+                "club_name": act.club.club_name, 
+                "participants_count": act.participants_count,
+            })
         
-        return Response(serializer.data)
+        return Response(data)
     except Exception as e:
         print(f"Error in activities list: {e}")
         return Response({"error": str(e)}, status=500)
