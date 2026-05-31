@@ -211,14 +211,28 @@ def add_member(request, club_id):
 
 @api_view(['GET'])
 def get_club_members(request, club_id):
-    try:
-        club = Club.objects.get(id=club_id)
-    except Club.DoesNotExist:
-        return Response({"error": "Club not found"}, status=404)
-
-    members = Member.objects.filter(club=club, status='accepted')
-    serializer = MemberSerializer(members, many=True)
-    return Response(serializer.data)
+    members = Member.objects.filter(club_id=club_id, status='accepted')\
+                            .select_related('user')\
+                            .values(
+                                'id', 
+                                'role', 
+                                'team', 
+                                'user__first_name', 
+                                'user__last_name', 
+                                'user__university_id', 
+                                'user__id'
+                            )
+    
+    data = [{
+        "id": m['id'],
+        "role": m['role'],
+        "full_name": f"{m['user__first_name']} {m['user__last_name']}",
+        "university_id": m['user__university_id'],
+        "user": m['user__id'],
+        "team": m['team']
+    } for m in members]
+    
+    return Response(data)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -368,6 +382,24 @@ def user_posts(request, user_id):
     serializer = StudentPostSerializer(posts, many=True)
     return Response(serializer.data)
 
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_student_post(request, post_id):
+    try:
+        post = StudentPost.objects.get(id=post_id)
+        
+        if post.user != request.user:
+            return Response({"error": "You can't delete others posts"}, 
+                            status=status.HTTP_403_FORBIDDEN)
+        
+        post.delete()
+        return Response({"message": "Post is deleted successfuly"}, status=status.HTTP_204_NO_CONTENT)
+    
+    except StudentPost.DoesNotExist:
+        return Response({"error": "Post is not found"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_leaderboard(request):

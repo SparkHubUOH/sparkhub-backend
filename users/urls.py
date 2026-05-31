@@ -25,5 +25,6 @@ urlpatterns = [
     path('staff/promote-to-leader/', PromoteToLeaderView.as_view(), name='promote-to-leader'),
     path('students/', views.StudentList),
     path('users/<int:user_id>/posts/', user_posts),
+    path('student-posts/<int:post_id>/delete/', views.delete_student_post, name='delete_student_post'),
     path('student-posts/', StudentPostListView.as_view(), name='student-posts-list'),
 ]
