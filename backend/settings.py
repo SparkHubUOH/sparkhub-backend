@@ -24,10 +24,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
 
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost', 'sparkhub-api-chcwhbdwd8frbedz.uaenorth-01.azurewebsites.net']
 
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
-
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOWED_ORIGINS = [
+    "https://sparkhub.vercel.app",
+]
 
 
 # Application definition
@@ -45,6 +46,7 @@ INSTALLED_APPS = [
     'users',
     'clubs',
     'analytics',
+    'storages',
 ]
 
 MIDDLEWARE = [
@@ -81,6 +83,9 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+AZURE_ACCOUNT_NAME = config('AZURE_ACCOUNT_NAME')
+AZURE_ACCOUNT_KEY = config('AZURE_ACCOUNT_KEY')
+AZURE_CONTAINER = "media"
 
 DATABASES = {
     'default': {
@@ -165,6 +170,13 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-MEDIA_URL = '/media/'
+MEDIA_URL = f"https://{AZURE_ACCOUNT_NAME}.blob.core.windows.net/{AZURE_CONTAINER}/"
 
-MEDIA_ROOT = BASE_DIR / 'media'
+STORAGES = {
+    "default": {
+        "BACKEND": "storages.backends.azure_storage.AzureStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
