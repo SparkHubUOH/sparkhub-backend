@@ -29,8 +29,9 @@ ALLOWED_HOSTS = ['127.0.0.1', 'localhost', 'sparkhub-api-chcwhbdwd8frbedz.uaenor
 CORS_ALLOW_ALL_ORIGINS = True
 
 CORS_ALLOWED_ORIGINS = [
-    "https://sparkhub.vercel.app",
     "https://sparkhub-frontend.vercel.app",
+    "https://sparkhub-frontend.vercel.app",
+    "https://sparkhub.vercel.app",
 ]
 
 
