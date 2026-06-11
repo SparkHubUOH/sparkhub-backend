@@ -26,8 +26,11 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 
 ALLOWED_HOSTS = ['127.0.0.1', 'localhost', 'sparkhub-api-chcwhbdwd8frbedz.uaenorth-01.azurewebsites.net']
 
+CORS_ALLOW_ALL_ORIGINS = True
+
 CORS_ALLOWED_ORIGINS = [
     "https://sparkhub.vercel.app",
+    "https://sparkhub-frontend.vercel.app",
 ]
 
 
